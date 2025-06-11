@@ -2,12 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { Box, Button, TextField, Typography, CircularProgress } from '@mui/material';
 import axios from 'axios';
 
-const ProcessFile = ({ file, onProcessingComplete, onProcessingError }) => {
-  const [startPage, setStartPage] = useState(1);
-  const [endPage, setEndPage] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [filePath, setFilePath] = useState('');
+interface ProcessFileProps {
+  file: File;
+  onProcessingComplete: (data: any) => void;
+  onProcessingError: (error: string) => void;
+}
+
+interface ProcessResponse {
+  file_path: string;
+  [key: string]: any;
+}
+
+const ProcessFile: React.FC<ProcessFileProps> = ({ file, onProcessingComplete, onProcessingError }) => {
+  const [startPage, setStartPage] = useState<number>(1);
+  const [endPage, setEndPage] = useState<number>(1);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [filePath, setFilePath] = useState<string>('');
 
   useEffect(() => {
     const uploadFile = async () => {
@@ -17,14 +28,14 @@ const ProcessFile = ({ file, onProcessingComplete, onProcessingError }) => {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await axios.post('http://localhost:8000/uploadVBNB', formData);
+        const response = await axios.post<ProcessResponse>('http://localhost:8000/uploadVBNB', formData);
         
         if (response.data && response.data.file_path) {
           setFilePath(response.data.file_path);
         } else {
           throw new Error('Không nhận được đường dẫn file từ server');
         }
-      } catch (err) {
+      } catch (err: any) {
         let errorMessage = 'Có lỗi xảy ra khi upload file';
         if (err.response && err.response.data) {
           if (typeof err.response.data === 'string') {
@@ -59,13 +70,12 @@ const ProcessFile = ({ file, onProcessingComplete, onProcessingError }) => {
         }
       });
       
-
       if (processResponse.data) {
         onProcessingComplete(processResponse.data);
       } else {
         throw new Error('Không nhận được dữ liệu từ server');
       }
-    } catch (err) {
+    } catch (err: any) {
       let errorMessage = 'Có lỗi xảy ra trong quá trình xử lý';
       if (err.response && err.response.data) {
         if (typeof err.response.data === 'string') {

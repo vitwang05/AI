@@ -16,8 +16,22 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DownloadIcon from '@mui/icons-material/Download';
 import axios from 'axios';
 
-const Results = ({ results, onReset }) => {
-  const [downloading, setDownloading] = useState(false);
+interface Document {
+  question: string;
+  answer: string;
+  documents?: string[];
+}
+
+interface ResultsProps {
+  results: {
+    processing_time?: number;
+    results?: Document[];
+  };
+  onReset: () => void;
+}
+
+const Results: React.FC<ResultsProps> = ({ results, onReset }) => {
+  const [downloading, setDownloading] = useState<boolean>(false);
 
   const handleDownloadDocx = async () => {
     try {

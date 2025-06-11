@@ -3,8 +3,12 @@ import { useDropzone } from 'react-dropzone';
 import { Box, Typography, Paper } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
-const FileUpload = ({ onFileUploaded }) => {
-  const onDrop = useCallback((acceptedFiles) => {
+interface FileUploadProps {
+  onFileUploaded: (file: File) => void;
+}
+
+const FileUpload: React.FC<FileUploadProps> = ({ onFileUploaded }) => {
+  const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       onFileUploaded(acceptedFiles[0]);
     }

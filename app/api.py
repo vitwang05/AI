@@ -1,27 +1,132 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
 import os
 import json
 from app.qa_chain import create_qa_chain, answer_question
 from app.document_processor import process_document, setup_pinecone_index, extract_structured_terms
-from typing import List, Dict
+from typing import List, Dict, Optional
 import tempfile
 from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import time
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+
+# Cấu hình JWT
+SECRET_KEY = "your-secret-key"  # Thay đổi thành một key bảo mật trong môi trường production
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Cấu hình password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Model cho user
+class User(BaseModel):
+    username: str
+    role: str
+
+# Model cho token
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+# Model cho user trong database
+class UserInDB(User):
+    hashed_password: str
+
+# Mock database - trong môi trường production nên sử dụng database thật
+fake_users_db = {
+    "user": {
+        "username": "user",
+        "role": "user",
+        "hashed_password": pwd_context.hash("user123")
+    },
+    "admin": {
+        "username": "admin",
+        "role": "admin",
+        "hashed_password": pwd_context.hash("admin123")
+    }
+}
 
 app = FastAPI()
 
 # Cấu hình CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend URL
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Frontend URLs
     allow_credentials=True,
     allow_methods=["*"],  # Cho phép tất cả các HTTP methods
     allow_headers=["*"],  # Cho phép tất cả các headers
 )
+
+# OAuth2 scheme
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+# Hàm xác thực user
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_user(db, username: str):
+    if username in db:
+        user_dict = db[username]
+        return UserInDB(**user_dict)
+    return None
+
+def authenticate_user(fake_db, username: str, password: str):
+    user = get_user(fake_db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = get_user(fake_users_db, username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+@app.post("/login", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
 def process_json(data, qa):
     results = []
@@ -55,8 +160,17 @@ def process_json(data, qa):
         process_item(data)
     
     return results
+
 @app.post("/uploadVBPL")
-async def upload_fileVBPL(file: UploadFile = File()):
+async def upload_fileVBPL(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only admin users can upload VBPL files"
+        )
     try:
         temp_dir = "VBPL"
         os.makedirs(temp_dir, exist_ok=True)
@@ -74,7 +188,15 @@ async def upload_fileVBPL(file: UploadFile = File()):
         raise HTTPException(status_code=500, detail=f"Lỗi upload file: {str(e)}")
 
 @app.post("/learn")
-async def learn_file(file_path: str):
+async def learn_file(
+    file_path: str,
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only admin users can learn files"
+        )
     try:
         start_time = time.time()
         # Convert URL-encoded path back to normal path
@@ -102,7 +224,10 @@ async def learn_file(file_path: str):
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
   
 @app.post("/uploadVBNB")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
     try:
         # Create temp directory if it doesn't exist
         temp_dir = "temp"
@@ -123,7 +248,12 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Lỗi upload file: {str(e)}")
 
 @app.post("/process")
-async def process_file(file_path: str, start_page: int, end_page: int):
+async def process_file(
+    file_path: str,
+    start_page: int,
+    end_page: int,
+    current_user: User = Depends(get_current_user)
+):
     try:
         start_time = time.time()
         # Convert URL-encoded path back to normal path
@@ -197,7 +327,6 @@ async def process_file(file_path: str, start_page: int, end_page: int):
             "results": results_data,
             "processing_time": processing_time
         }
-
     except HTTPException as he:
         raise he
     except Exception as e:
@@ -267,3 +396,67 @@ async def generate_docx():
         raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi tạo file docx: {str(e)}")
+
+@app.get("/files")
+async def get_files(
+    directory: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        if directory == "VBPL" and current_user.role != "admin":
+            raise HTTPException(
+                status_code=403,
+                detail="Only admin users can access VBPL files"
+            )
+
+        if directory:
+            dir_path = directory
+        else:
+            dir_path = "temp"
+
+        if not os.path.exists(dir_path):
+            return {directory: []}
+
+        files = []
+        for filename in os.listdir(dir_path):
+            file_path = os.path.join(dir_path, filename)
+            if os.path.isfile(file_path):
+                stat = os.stat(file_path)
+                files.append({
+                    "name": filename,
+                    "path": file_path.replace("\\", "/"),
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime
+                })
+
+        return {directory: files}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting files: {str(e)}")
+
+@app.delete("/files")
+async def delete_file(
+    path: str,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Convert URL-encoded path back to normal path
+        path = path.replace("%2F", "/")
+        
+        # Kiểm tra quyền xóa file
+        if path.startswith("VBPL/") and current_user.role != "admin":
+            raise HTTPException(
+                status_code=403,
+                detail="Only admin users can delete VBPL files"
+            )
+
+        if not os.path.exists(path):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        os.remove(path)
+        return {"message": "File deleted successfully"}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting file: {str(e)}")

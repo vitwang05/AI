@@ -18,11 +18,23 @@ import ExpandMore from '@mui/icons-material/ExpandMore';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 
+interface File {
+  name: string;
+  [key: string]: any;
+}
+
+interface SidebarProps {
+  uploadedFiles?: File[];
+  processedFiles?: File[];
+  onFileSelect?: (file: File, type: 'uploaded' | 'processed') => void;
+  onNewProcess: () => void;
+}
+
 const drawerWidth = 280;
 
-function Sidebar({ uploadedFiles, processedFiles, onFileSelect, onNewProcess }) {
-  const [openUploaded, setOpenUploaded] = React.useState(true);
-  const [openProcessed, setOpenProcessed] = React.useState(true);
+const Sidebar: React.FC<SidebarProps> = ({ uploadedFiles, processedFiles, onFileSelect, onNewProcess }) => {
+  const [openUploaded, setOpenUploaded] = React.useState<boolean>(true);
+  const [openProcessed, setOpenProcessed] = React.useState<boolean>(true);
 
   const handleUploadedClick = () => {
     setOpenUploaded(!openUploaded);
