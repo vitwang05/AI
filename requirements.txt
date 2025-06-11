@@ -1,0 +1,13 @@
+python-docx
+sentence-transformers
+underthesea
+langchain
+langchain-pinecone
+langchain-google-genai
+docx2txt
+langchain-community
+pymupdf
+fastapi
+python-multipart
+uvicorn
+python-dotenv
