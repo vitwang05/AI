@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect } from "react";
+import axios from "axios";
 import {
   Box,
   Button,
@@ -28,10 +28,20 @@ import {
   Tabs,
   Tab,
   Divider,
-} from '@mui/material';
-import { Delete as DeleteIcon, CloudUpload as CloudUploadIcon, PlayArrow as PlayIcon, Close as CloseIcon, Visibility as VisibilityIcon, Download as DownloadIcon } from '@mui/icons-material';
-import { format } from 'date-fns';
-import ReactMarkdown from 'react-markdown';
+  Select,
+  MenuItem,
+  FormControl,
+} from "@mui/material";
+import {
+  Delete as DeleteIcon,
+  CloudUpload as CloudUploadIcon,
+  PlayArrow as PlayIcon,
+  Close as CloseIcon,
+  Visibility as VisibilityIcon,
+  Download as DownloadIcon,
+} from "@mui/icons-material";
+import { format } from "date-fns";
+import ReactMarkdown from "react-markdown";
 
 interface FileInfo {
   name: string;
@@ -68,23 +78,39 @@ const UserPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [uploadProgress, setUploadProgress] = useState<{[key: string]: number}>({});
+  const [uploadProgress, setUploadProgress] = useState<{
+    [key: string]: number;
+  }>({});
   const [processDialogOpen, setProcessDialogOpen] = useState(false);
-  const [selectedFileForProcess, setSelectedFileForProcess] = useState<string | null>(null);
+  const [selectedFileForProcess, setSelectedFileForProcess] = useState<
+    string | null
+  >(null);
   const [startPage, setStartPage] = useState<number>(1);
   const [endPage, setEndPage] = useState<number>(1);
-  const [processingResults, setProcessingResults] = useState<ProcessResult[]>([]);
+  const [processingResults, setProcessingResults] = useState<ProcessResult[]>(
+    []
+  );
   const [resultsDialogOpen, setResultsDialogOpen] = useState(false);
   const [currentTab, setCurrentTab] = useState(0);
+  const [processingStatus, setProcessingStatus] = useState<{[key: string]: boolean}>({});
+  const [selectedProcessType, setSelectedProcessType] = useState<string>("1");
+
+  // Tạo instance axios với config mặc định
+  const api = axios.create({
+    baseURL: 'http://localhost:8000',
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+    }
+  });
 
   const fetchFiles = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:8000/files?directory=temp');
+      const response = await api.get("/files?directory=temp");
       setFiles(response.data.temp || []);
       setError(null);
     } catch (err) {
-      setError('Failed to fetch files');
+      setError("Failed to fetch files");
       console.error(err);
     } finally {
       setLoading(false);
@@ -94,11 +120,11 @@ const UserPage: React.FC = () => {
   const fetchResultFiles = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:8000/process-results');
+      const response = await api.get("/process-results");
       setResultFiles(response.data || []);
       setError(null);
     } catch (err) {
-      setError('Failed to fetch result files');
+      setError("Failed to fetch result files");
       console.error(err);
     } finally {
       setLoading(false);
@@ -112,24 +138,32 @@ const UserPage: React.FC = () => {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setCurrentTab(newValue);
-    if (newValue === 1) { // Tab kết quả xử lý
-      fetchResultFiles();
-    }
+    setTimeout(() => {
+      if (newValue === 0) {
+        fetchFiles();
+      } else if (newValue === 1) {
+        fetchResultFiles();
+      }
+    }, 0);
   };
 
   const handleViewResults = async (filename: string) => {
     try {
       setLoading(true);
-      const response = await axios.get(`http://localhost:8000/process-results/${filename}`);
-      if (response.data && response.data.results && Array.isArray(response.data.results)) {
+      const response = await api.get(`/process-results/${filename}`);
+      if (
+        response.data &&
+        response.data.results &&
+        Array.isArray(response.data.results)
+      ) {
         setProcessingResults(response.data.results);
         setResultsDialogOpen(true);
       } else {
-        setError('No results found');
+        setError("No results found");
       }
     } catch (err) {
-      console.error('Error fetching result details:', err);
-      setError('Failed to fetch result details');
+      console.error("Error fetching result details:", err);
+      setError("Failed to fetch result details");
     } finally {
       setLoading(false);
     }
@@ -138,12 +172,12 @@ const UserPage: React.FC = () => {
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       const newFiles = Array.from(event.target.files);
-      setSelectedFiles(prev => [...prev, ...newFiles]);
+      setSelectedFiles((prev) => [...prev, ...newFiles]);
     }
   };
 
   const removeSelectedFile = (index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleUpload = async () => {
@@ -155,30 +189,30 @@ const UserPage: React.FC = () => {
 
       for (const file of selectedFiles) {
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append("file", file);
 
-        await axios.post('http://localhost:8000/uploadVBNB', formData, {
+        await api.post("/uploadVBNB", formData, {
           headers: {
-            'Content-Type': 'multipart/form-data',
+            "Content-Type": "multipart/form-data",
           },
           onUploadProgress: (progressEvent) => {
             const progress = progressEvent.total
               ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
               : 0;
-            setUploadProgress(prev => ({
+            setUploadProgress((prev) => ({
               ...prev,
-              [file.name]: progress
+              [file.name]: progress,
             }));
           },
         });
       }
 
-      setSuccess('Files uploaded successfully');
+      setSuccess("Files uploaded successfully");
       setSelectedFiles([]);
       setUploadProgress({});
       await fetchFiles();
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to upload files');
+      setError(err.response?.data?.detail || "Failed to upload files");
       console.error(err);
     } finally {
       setLoading(false);
@@ -187,15 +221,15 @@ const UserPage: React.FC = () => {
   };
 
   const handleDelete = async (filePath: string) => {
-    if (!window.confirm('Are you sure you want to delete this file?')) return;
+    if (!window.confirm("Are you sure you want to delete this file?")) return;
 
     try {
       setLoading(true);
-      await axios.delete(`http://localhost:8000/files?path=${encodeURIComponent(filePath)}`);
-      setSuccess('File deleted successfully');
+      await api.delete(`/files?path=${encodeURIComponent(filePath)}`);
+      setSuccess("File deleted successfully");
       fetchFiles();
     } catch (err) {
-      setError('Failed to delete file');
+      setError("Failed to delete file");
       console.error(err);
     } finally {
       setLoading(false);
@@ -206,24 +240,42 @@ const UserPage: React.FC = () => {
     if (!selectedFileForProcess) return;
 
     try {
-      setLoading(true);
-      const response = await axios.post('http://localhost:8000/process', null, {
+      setProcessingStatus(prev => ({
+        ...prev,
+        [selectedFileForProcess]: true
+      }));
+      setProcessDialogOpen(false);
+
+      const processPromise = api.post("/process", null, {
         params: {
           file_path: selectedFileForProcess,
           start_page: startPage,
-          end_page: endPage
-        }
+          end_page: endPage,
+          process_type: selectedProcessType
+        },
       });
 
-      setProcessingResults(response.data.results);
-      setSuccess('File processed successfully');
-      setProcessDialogOpen(false);
-      setResultsDialogOpen(true);
+      processPromise.then(response => {
+        setProcessingResults(response.data.results);
+        setSuccess("File processed successfully");
+        setResultsDialogOpen(true);
+      }).catch(err => {
+        setError(err.response?.data?.detail || "Failed to process file");
+        console.error(err);
+      }).finally(() => {
+        setProcessingStatus(prev => ({
+          ...prev,
+          [selectedFileForProcess]: false
+        }));
+      });
+
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to process file');
+      setError(err.response?.data?.detail || "Failed to process file");
       console.error(err);
-    } finally {
-      setLoading(false);
+      setProcessingStatus(prev => ({
+        ...prev,
+        [selectedFileForProcess]: false
+      }));
     }
   };
 
@@ -233,11 +285,11 @@ const UserPage: React.FC = () => {
   };
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
+    if (bytes === 0) return "0 Bytes";
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
   const formatDate = (timestamp: number) => {
@@ -247,26 +299,27 @@ const UserPage: React.FC = () => {
   const handleDownloadDocx = async (filename: string) => {
     try {
       setLoading(true);
-      const response = await axios.post('http://localhost:8000/generate-docx', {
-        filename: filename
-      }, {
-        responseType: 'blob'
-      });
-      
-      // Tạo URL từ blob
+      const response = await api.post(
+        "/generate-docx",
+        {
+          filename: filename,
+        },
+        {
+          responseType: "blob",
+        }
+      );
+
       const url = window.URL.createObjectURL(new Blob([response.data]));
-      // Tạo link tải xuống
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
-      link.setAttribute('download', `${filename.replace('.json', '')}.docx`);
+      link.setAttribute("download", `${filename.replace(".json", "")}.docx`);
       document.body.appendChild(link);
       link.click();
-      // Cleanup
       link.parentNode?.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Error downloading DOCX:', err);
-      setError('Failed to download DOCX file');
+      console.error("Error downloading DOCX:", err);
+      setError("Failed to download DOCX file");
     } finally {
       setLoading(false);
     }
@@ -291,7 +344,7 @@ const UserPage: React.FC = () => {
       )}
 
       <Paper sx={{ p: 2, mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
           <Button
             variant="contained"
             component="label"
@@ -327,7 +380,10 @@ const UserPage: React.FC = () => {
                 <ListItem
                   key={index}
                   secondaryAction={
-                    <IconButton edge="end" onClick={() => removeSelectedFile(index)}>
+                    <IconButton
+                      edge="end"
+                      onClick={() => removeSelectedFile(index)}
+                    >
                       <DeleteIcon />
                     </IconButton>
                   }
@@ -337,7 +393,7 @@ const UserPage: React.FC = () => {
                     secondary={
                       uploadProgress[file.name] !== undefined
                         ? `Tiến trình: ${uploadProgress[file.name]}%`
-                        : 'Sẵn sàng tải lên'
+                        : "Sẵn sàng tải lên"
                     }
                   />
                   {uploadProgress[file.name] !== undefined && (
@@ -378,6 +434,7 @@ const UserPage: React.FC = () => {
                       <TableCell>Tên file</TableCell>
                       <TableCell>Kích thước</TableCell>
                       <TableCell>Ngày sửa đổi</TableCell>
+                      <TableCell>Option</TableCell>
                       <TableCell align="right">Thao tác</TableCell>
                     </TableRow>
                   </TableHead>
@@ -387,22 +444,41 @@ const UserPage: React.FC = () => {
                         <TableCell>{file.name}</TableCell>
                         <TableCell>{formatFileSize(file.size)}</TableCell>
                         <TableCell>{formatDate(file.modified)}</TableCell>
+                        <TableCell>
+                          <FormControl size="small">
+                            <Select
+                              value={selectedProcessType}
+                              onChange={(e) => setSelectedProcessType(e.target.value)}
+                              sx={{ minWidth: 100 }}
+                            >
+                              <MenuItem value="1">Đánh giá chi tiết (điều luật)</MenuItem>
+                              <MenuItem value="2">Phân loại văn bản</MenuItem>
+                              <MenuItem value="3">Đánh giá chính tả</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </TableCell>
                         <TableCell align="right">
-                          <IconButton
-                            onClick={() => {
-                              setSelectedFileForProcess(file.path);
-                              setProcessDialogOpen(true);
-                            }}
-                            color="primary"
-                          >
-                            <PlayIcon />
-                          </IconButton>
-                          <IconButton
-                            onClick={() => handleDelete(file.path)}
-                            color="error"
-                          >
-                            <DeleteIcon />
-                          </IconButton>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {processingStatus[file.path] ? (
+                              <CircularProgress size={24} />
+                            ) : (
+                              <IconButton
+                                onClick={() => {
+                                  setSelectedFileForProcess(file.path);
+                                  setProcessDialogOpen(true);
+                                }}
+                                color="primary"
+                              >
+                                <PlayIcon />
+                              </IconButton>
+                            )}
+                            <IconButton
+                              onClick={() => handleDelete(file.path)}
+                              color="error"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Box>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -464,7 +540,10 @@ const UserPage: React.FC = () => {
         )}
       </Paper>
 
-      <Dialog open={processDialogOpen} onClose={() => setProcessDialogOpen(false)}>
+      <Dialog
+        open={processDialogOpen}
+        onClose={() => setProcessDialogOpen(false)}
+      >
         <DialogTitle>Xử lý file</DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
@@ -489,7 +568,7 @@ const UserPage: React.FC = () => {
         <DialogActions>
           <Button onClick={() => setProcessDialogOpen(false)}>Hủy</Button>
           <Button onClick={handleProcess} color="primary" disabled={loading}>
-            {loading ? <CircularProgress size={24} /> : 'Xử lý'}
+            {loading ? <CircularProgress size={24} /> : "Xử lý"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -501,7 +580,7 @@ const UserPage: React.FC = () => {
         fullWidth
         PaperProps={{
           sx: {
-            maxHeight: '80vh',
+            maxHeight: "80vh",
           },
         }}
       >
@@ -511,7 +590,7 @@ const UserPage: React.FC = () => {
             aria-label="close"
             onClick={handleCloseResultsDialog}
             sx={{
-              position: 'absolute',
+              position: "absolute",
               right: 8,
               top: 8,
             }}
@@ -538,43 +617,54 @@ const UserPage: React.FC = () => {
                   <Typography variant="h6" gutterBottom>
                     Câu trả lời
                   </Typography>
-                  <Box sx={{ 
-                    '& p': { mb: 2 },
-                    '& ul': { pl: 2, mb: 2 },
-                    '& li': { mb: 1 },
-                    '& strong': { fontWeight: 'bold' }
-                  }}>
-                    <ReactMarkdown>
-                      {result.answer}
-                    </ReactMarkdown>
+                  <Box
+                    sx={{
+                      "& p": { mb: 2 },
+                      "& ul": { pl: 2, mb: 2 },
+                      "& li": { mb: 1 },
+                      "& strong": { fontWeight: "bold" },
+                    }}
+                  >
+                    <ReactMarkdown>{result.answer}</ReactMarkdown>
                   </Box>
 
-                  {result.documents && Object.keys(result.documents).length > 0 && (
-                    <>
-                      <Typography variant="h6" gutterBottom>
-                        Tài liệu tham khảo
-                      </Typography>
-                      {Object.entries(result.documents).map(([source, docs]) => (
-                        <Box key={source} sx={{ mb: 3 }}>
-                          <Typography variant="subtitle1" color="primary" gutterBottom>
-                            {source}
-                          </Typography>
-                          <List dense>
-                            {docs.map((doc, docIndex) => (
-                              <ListItem key={docIndex}>
-                                <ListItemText
-                                  primary={doc.title}
-                                  secondary={doc.text || 'Không có nội dung'}
-                                />
-                              </ListItem>
-                            ))}
-                          </List>
-                          <Divider />
-                        </Box>
-                      ))}
-                    </>
+                  {result.documents &&
+                    Object.keys(result.documents).length > 0 && (
+                      <>
+                        <Typography variant="h6" gutterBottom>
+                          Tài liệu tham khảo
+                        </Typography>
+                        {Object.entries(result.documents).map(
+                          ([source, docs]) => (
+                            <Box key={source} sx={{ mb: 3 }}>
+                              <Typography
+                                variant="subtitle1"
+                                color="primary"
+                                gutterBottom
+                              >
+                                {source}
+                              </Typography>
+                              <List dense>
+                                {docs.map((doc, docIndex) => (
+                                  <ListItem key={docIndex}>
+                                    <ListItemText
+                                      primary={doc.title}
+                                      secondary={
+                                        doc.text || "Không có nội dung"
+                                      }
+                                    />
+                                  </ListItem>
+                                ))}
+                              </List>
+                              <Divider />
+                            </Box>
+                          )
+                        )}
+                      </>
+                    )}
+                  {index < processingResults.length - 1 && (
+                    <Divider sx={{ my: 3 }} />
                   )}
-                  {index < processingResults.length - 1 && <Divider sx={{ my: 3 }} />}
                 </Box>
               ))}
             </Box>
@@ -592,4 +682,4 @@ const UserPage: React.FC = () => {
   );
 };
 
-export default UserPage; 
+export default UserPage;
