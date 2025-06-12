@@ -8,7 +8,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string) => Promise<void>;
+  token: string | null;
+  login: (username: string, password: string) => Promise<User>;
   logout: () => void;
 }
 
@@ -16,19 +17,21 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
     // Check if user is already logged in
-    const token = localStorage.getItem('token');
+    const storedToken = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
-    if (token && storedUser) {
+    if (storedToken && storedUser) {
       setUser(JSON.parse(storedUser));
+      setToken(storedToken);
       // Set default authorization header
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
     }
   }, []);
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string): Promise<User> => {
     try {
       const formData = new FormData();
       formData.append('username', username);
@@ -42,6 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const { access_token } = response.data;
       localStorage.setItem('token', access_token);
+      setToken(access_token);
       
       // Set default authorization header
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
@@ -54,6 +58,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
+
+      return userData;
     } catch (error) {
       console.error('Login failed:', error);
       throw error;
@@ -62,13 +68,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     setUser(null);
+    setToken(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     delete axios.defaults.headers.common['Authorization'];
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, token, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

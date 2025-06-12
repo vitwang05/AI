@@ -23,8 +23,12 @@ const LoginPage: React.FC = () => {
     setError(null);
 
     try {
-      await login(username, password);
-      navigate('/');
+      const userData = await login(username, password);
+      if (userData.role === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/user');
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Invalid username or password');
     }

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -16,6 +16,7 @@ import time
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from collections import defaultdict
 
 # Cấu hình JWT
 SECRET_KEY = "your-secret-key"  # Thay đổi thành một key bảo mật trong môi trường production
@@ -131,28 +132,73 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 def process_json(data, qa):
     results = []
     
+    def group_by_program(documents):
+        result = defaultdict(list)
+        for item in documents:
+            result[item.metadata.get('program')].append({   
+                "title": item.metadata.get('article_title'), 
+                "text": item.page_content})
+        return dict(result)
+    
     def process_item(item, parent_title=""):
         title = item.get("title", "")
         full_title = f"{parent_title} > {title}" if parent_title else title
         sub_items = item.get("sub_items", [])
         
         if not sub_items:
+            # Nếu không có sub_items, xử lý trực tiếp title
             answer, documents = answer_question(full_title, qa)
-            printed_names = set()
-            for doc in documents:
-                law_name = doc.metadata.get('law_name', 'Unknown')
-                if law_name not in printed_names:
-                    printed_names.add(law_name)
-                    
+            grouped_documents = group_by_program(documents)
             results.append({
                 "question": full_title,
                 "answer": answer,
-                "documents": list(printed_names)
+                "documents": grouped_documents
             })
         else:
+            # Xử lý các sub_items
             for sub in sub_items:
-                process_item(sub, full_title)
+                sub_title = sub.get("title", "")
+                full_sub_title = f"{full_title} > {sub_title}"
+                details = sub.get("details", [])
+                
+                if not details:
+                    # Nếu không có details, xử lý sub_title
+                    answer, documents = answer_question(full_sub_title, qa)
+                    grouped_documents = group_by_program(documents)
+                    results.append({
+                        "question": full_sub_title,
+                        "answer": answer,
+                        "documents": grouped_documents
+                    })
+                else:
+                    # Xử lý các details
+                    for detail in details:
+                        detail_title = detail.get("title", "")
+                        full_detail_title = f"{full_sub_title} > {detail_title}"
+                        sub_details = detail.get("sub_details", [])
+                        
+                        if not sub_details:
+                            # Nếu không có sub_details, xử lý detail_title
+                            answer, documents = answer_question(full_detail_title, qa)
+                            grouped_documents = group_by_program(documents)
+                            results.append({
+                                "question": full_detail_title,
+                                "answer": answer,
+                                "documents": grouped_documents
+                            })
+                        else:
+                            # Xử lý các sub_details
+                            for sub_detail in sub_details:
+                                full_sub_detail_title = f"{full_detail_title} > {sub_detail}"
+                                answer, documents = answer_question(full_sub_detail_title, qa)
+                                grouped_documents = group_by_program(documents)
+                                results.append({
+                                    "question": full_sub_detail_title,
+                                    "answer": answer,
+                                    "documents": grouped_documents
+                                })
     
+    # Xử lý từng item trong danh sách
     if isinstance(data, list):
         for item in data:
             process_item(item)
@@ -277,12 +323,13 @@ async def process_file(
             if not structured_terms:
                 raise HTTPException(status_code=400, detail="No content found in the specified page range")
         except Exception as e:
+            print(f"Error extracting structured terms: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
-        # Lưu kết quả trung gian
-        output_dir = "output"
-        os.makedirs(output_dir, exist_ok=True)
-        output_json = os.path.join(output_dir, "output.json")
+        # Lưu kết quả trung gian vào thư mục temp
+        temp_dir = "json_output"
+        os.makedirs(temp_dir, exist_ok=True)
+        output_json = os.path.join(temp_dir, "output.json")
         
         with open(output_json, "w", encoding="utf-8") as f:
             json.dump(structured_terms, f, ensure_ascii=False, indent=2)
@@ -291,6 +338,7 @@ async def process_file(
         try:
             qa_chain = create_qa_chain()
         except Exception as e:
+            print(f"Error creating QA chain: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error creating QA chain: {str(e)}")
 
         # Đọc dữ liệu đã trích xuất
@@ -298,6 +346,7 @@ async def process_file(
             with open(output_json, "r", encoding="utf-8") as f:
                 json_data = json.load(f)
         except Exception as e:
+            print(f"Error reading output file: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error reading output file: {str(e)}")
 
         # Xử lý dữ liệu JSON
@@ -306,96 +355,176 @@ async def process_file(
             if not results:
                 raise HTTPException(status_code=400, detail="No results generated from the content")
         except Exception as e:
+            print(f"Error processing JSON data: {str(e)}")
+            print(f"JSON data: {json.dumps(json_data, indent=2)}")
             raise HTTPException(status_code=500, detail=f"Error processing JSON data: {str(e)}")
 
-        # Ghi ra kết quả
-        results_json = os.path.join(output_dir, "qa_results.json")
+        # Lưu kết quả cuối cùng vào thư mục output
+        output_dir = "output"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Lấy tên file gốc
+        original_filename = os.path.basename(file_path)
+        # Tạo timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Tạo tên file kết quả
+        results_filename = f"{os.path.splitext(original_filename)[0]}_{timestamp}.json"
+        results_json = os.path.join(output_dir, results_filename)
+        
         try:
             with open(results_json, "w", encoding="utf-8") as f:
                 json.dump(results, f, ensure_ascii=False, indent=2)
         except Exception as e:
+            print(f"Error writing results file: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error writing results file: {str(e)}")
 
         end_time = time.time()
         processing_time = end_time - start_time
-
-        # Read the results file
-        with open(results_json, "r", encoding="utf-8") as f:
-            results_data = json.load(f)
-
+        
         return {
-            "results": results_data,
-            "processing_time": processing_time
+            "results": results,
+            "processing_time": processing_time,
+            "filename": results_filename
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+@app.get("/process-results")
+async def get_process_results():
+    try:
+        output_dir = "output"
+        if not os.path.exists(output_dir):
+            return []
+            
+        results = []
+        for filename in os.listdir(output_dir):
+            if filename.endswith('.json'):
+                file_path = os.path.join(output_dir, filename)
+                modified_time = os.path.getmtime(file_path)
+                results.append({
+                    "filename": filename,
+                    "modified_time": modified_time
+                })
+        
+        # Sắp xếp theo thời gian sửa đổi mới nhất
+        results.sort(key=lambda x: x["modified_time"], reverse=True)
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/process-results/{filename}")
+async def get_process_result(
+    filename: str,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        output_dir = "output"
+        # Tìm file có chứa tên file gốc trong tên
+        matching_files = [f for f in os.listdir(output_dir) if filename in f and f.endswith('.json')]
+        
+        if not matching_files:
+            raise HTTPException(status_code=404, detail="Result not found")
+        
+        # Lấy file đầu tiên khớp với tên file
+        results_file = os.path.join(output_dir, matching_files[0])
+        
+        with open(results_file, "r", encoding="utf-8") as f:
+            results_data = json.load(f)
+            
+        return {
+            "filename": filename,
+            "results": results_data
         }
     except HTTPException as he:
         raise he
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reading results: {str(e)}")
 
 @app.post("/generate-docx")
-async def generate_docx():
+async def generate_docx(request: Request):
     try:
-        start_time = time.time()
+        data = await request.json()
+        filename = data.get('filename')
+        print(f"Received request for filename: {filename}")
         
-        # Đọc file qa_results.json từ thư mục output
+        if not filename:
+            raise HTTPException(status_code=400, detail="Filename is required")
+
+        # Tìm file trong thư mục output
         output_dir = "output"
-        results_file = os.path.join(output_dir, "qa_results.json")
+        matching_files = [f for f in os.listdir(output_dir) if f.endswith('.json') and filename in f]
         
-        if not os.path.exists(results_file):
-            raise HTTPException(status_code=404, detail="Không tìm thấy file kết quả. Vui lòng xử lý file trước.")
-        
-        with open(results_file, "r", encoding="utf-8") as f:
-            qa_results = json.load(f)
-        
-        # Tạo document mới
+        if not matching_files:
+            print(f"No matching files found for: {filename}")
+            raise HTTPException(status_code=404, detail="Result file not found")
+            
+        # Lấy file đầu tiên tìm thấy
+        result_file = matching_files[0]
+        json_path = os.path.join(output_dir, result_file)
+        print(f"Found matching file: {json_path}")
+
+        # Đọc file JSON
+        with open(json_path, 'r', encoding='utf-8') as f:
+            results = json.load(f)
+        print(f"Successfully loaded JSON data with {len(results)} results")
+
+        # Tạo file DOCX
         doc = Document()
         
         # Thêm tiêu đề
-        title = doc.add_heading('Kết Quả Hỏi Đáp', 0)
-        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.add_heading('Kết quả phân tích', 0)
         
-        # Thêm từng cặp hỏi đáp
-        for idx, qa in enumerate(qa_results, 1):
+        # Thêm từng câu hỏi và câu trả lời
+        for result in results:
             # Thêm câu hỏi
-            question = doc.add_paragraph()
-            question.add_run(f'Câu hỏi {idx}: ').bold = True
-            question.add_run(qa['question'])
+            doc.add_heading(result['question'], level=1)
             
             # Thêm câu trả lời
-            answer = doc.add_paragraph()
-            answer.add_run('Trả lời: ').bold = True
-            answer.add_run(qa['answer'])
+            doc.add_paragraph(result['answer'])
             
-            # Thêm tài liệu tham khảo
-            if qa['documents']:
-                refs = doc.add_paragraph()
-                refs.add_run('Tài liệu tham khảo: ').bold = True
-                for doc_name in qa['documents']:
-                    refs.add_run(f'\n- {doc_name}')
+            # Thêm tài liệu tham khảo nếu có
+            if result.get('documents'):
+                doc.add_heading('Tài liệu tham khảo:', level=2)
+                for source, docs in result['documents'].items():
+                    doc.add_paragraph(f'Nguồn: {source}', style='Heading 3')
+                    for doc_item in docs:
+                        doc.add_paragraph(doc_item['text'])
             
             # Thêm đường kẻ phân cách
             doc.add_paragraph('_' * 50)
-        
-        # Lưu file vào thư mục output
-        output_file = os.path.join(output_dir, "qa_results.docx")
-        doc.save(output_file)
-        
-        end_time = time.time()
-        processing_time = end_time - start_time
-        
-        return FileResponse(
-            output_file,
+
+        # Lưu file DOCX tạm thời
+        TEMP_DIR = "temp_docx"
+        os.makedirs(TEMP_DIR, exist_ok=True)
+        temp_docx_path = os.path.join(TEMP_DIR, f"{os.path.splitext(result_file)[0]}.docx")
+        print(f"Saving DOCX to temporary path: {temp_docx_path}")
+        doc.save(temp_docx_path)
+
+        # Đọc file DOCX và trả về
+        with open(temp_docx_path, 'rb') as f:
+            docx_content = f.read()
+
+        # Xóa file tạm
+        os.remove(temp_docx_path)
+
+        # Trả về file DOCX
+        return Response(
+            content=docx_content,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            filename="qa_results.docx",
             headers={
-                "Content-Disposition": f"attachment; filename=qa_results.docx"
+                "Content-Disposition": f"attachment; filename={os.path.splitext(result_file)[0]}.docx"
             }
         )
-        
-    except HTTPException as he:
-        raise he
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi tạo file docx: {str(e)}")
+        print(f"Error generating DOCX: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/files")
 async def get_files(
