@@ -9,7 +9,7 @@ qa_prompt = PromptTemplate(
     input_variables=["context", "question"],
     template="""
 Bạn là một trợ lý thông minh. Hãy sử dụng thông tin dưới đây để trả lời câu hỏi.
-Nếu không tìm thấy câu trả lời trong thông tin, hãy nói "Tôi không biết".
+Nếu không tìm thấy câu trả lời trong thông tin, hãy nói "Không tìm thấy tài liệu liên quan".
 
 Thông tin:
 {context}
@@ -19,9 +19,9 @@ Câu hỏi:
 {question}
 
 Yêu cầu
-- Chỉ rõ điều luật căn cứ thuộc văn bản pháp luật nào.
-- Mức độ phù hợp và lý do.
-- Nếu không phù hợp gợi ý sửa đổi
+- Đánh giá mức độ phù hợp trên 3 mức: phù hợp, không phù hợp, cần xem xét thêm.
+- Lý do đánh giá.
+- Nếu không phù hợp gợi ý sửa đổi.
 
 Trả lời:
 """.strip()

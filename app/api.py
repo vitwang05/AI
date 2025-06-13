@@ -131,7 +131,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 def process_json(data, qa):
     results = []
-    
+    #Copy file output.json
+    document = []
+    #Mỗi lần lưu result thì sẽ thêm answer vào document ở mục cuối cùng đang chạy đến trong output.json
     def group_by_program(documents):
         result = defaultdict(list)
         for item in documents:
@@ -141,14 +143,12 @@ def process_json(data, qa):
         return dict(result)
     
     def process_item(item, parent_title=""):
-        sentence = ("")
         title = item.get("title", "")
         sentence = f"{parent_title}\n{title}" if parent_title else title
         full_title = f"{parent_title} > {title}" if parent_title else title
         sub_items = item.get("sub_items", [])
-        
+
         if not sub_items:
-            # Nếu không có sub_items, xử lý trực tiếp title
             answer, documents = answer_question(full_title, qa)
             grouped_documents = group_by_program(documents)
             results.append({
@@ -157,16 +157,19 @@ def process_json(data, qa):
                 "answer": answer,
                 "documents": grouped_documents
             })
+            document.append({
+                "title": title,
+                "answer": answer,
+                "documents": grouped_documents
+            })
         else:
-            # Xử lý các sub_items
+            processed_sub_items = []
             for sub in sub_items:
                 sub_title = sub.get("title", "")
                 sub_sentence = f"{sentence}\n{sub_title}"
                 full_sub_title = f"{full_title} > {sub_title}"
                 details = sub.get("details", [])
-                
                 if not details:
-                    # Nếu không có details, xử lý sub_title
                     answer, documents = answer_question(full_sub_title, qa)
                     grouped_documents = group_by_program(documents)
                     results.append({
@@ -175,16 +178,19 @@ def process_json(data, qa):
                         "answer": answer,
                         "documents": grouped_documents
                     })
+                    processed_sub_items.append({
+                        "title": sub_title,
+                        "answer": answer,
+                        "documents": grouped_documents
+                    })
                 else:
-                    # Xử lý các details
+                    processed_details = []
                     for detail in details:
                         detail_title = detail.get("title", "")
                         detail_sentence = f"{sub_sentence}\n{detail_title}"
                         full_detail_title = f"{full_sub_title} > {detail_title}"
                         sub_details = detail.get("sub_details", [])
-                        
                         if not sub_details:
-                            # Nếu không có sub_details, xử lý detail_title
                             answer, documents = answer_question(full_detail_title, qa)
                             grouped_documents = group_by_program(documents)
                             results.append({
@@ -193,20 +199,43 @@ def process_json(data, qa):
                                 "answer": answer,
                                 "documents": grouped_documents
                             })
+                            processed_details.append({
+                                "title": detail_title,
+                                "answer": answer,
+                                "documents": grouped_documents
+                            })
                         else:
-                            # Xử lý các sub_details
+                            processed_sub_details = []
                             for sub_detail in sub_details:
-                                sub_detail_sentence = f"{detail_sentence}\n{sub_detail}"
-                                full_sub_detail_title = f"{full_detail_title} > {sub_detail}"
+                                sub_detail_title = sub_detail.get("title", "")
+                                sub_detail_sentence = f"{detail_sentence}\n{sub_detail_title}"
+                                full_sub_detail_title = f"{full_detail_title} > {sub_detail_title}"
                                 answer, documents = answer_question(full_sub_detail_title, qa)
                                 grouped_documents = group_by_program(documents)
                                 results.append({
-                                    "sentence":sub_detail_sentence,
+                                    "sentence": sub_detail_sentence,
                                     "question": full_sub_detail_title,
                                     "answer": answer,
                                     "documents": grouped_documents
                                 })
-    
+                                processed_sub_details.append({
+                                    "title": sub_detail_title,
+                                    "answer": answer,
+                                    "documents": grouped_documents
+                                })
+                            processed_details.append({
+                                "title": detail_title,
+                                "sub_details": processed_sub_details
+                            })
+                    processed_sub_items.append({
+                        "title": sub_title,
+                        "details": processed_details
+                    })
+            document.append({
+                "title": title,
+                "sub_items": processed_sub_items
+            })
+
     # Xử lý từng item trong danh sách
     if isinstance(data, list):
         for item in data:
@@ -214,7 +243,7 @@ def process_json(data, qa):
     else:
         process_item(data)
     
-    return results
+    return results, document
 
 @app.post("/uploadVBPL")
 async def upload_fileVBPL(
@@ -360,7 +389,7 @@ async def process_file(
 
         # Xử lý dữ liệu JSON
         try:
-            results = process_json(json_data, qa_chain)
+            results, document = process_json(json_data, qa_chain)
             if not results:
                 raise HTTPException(status_code=400, detail="No results generated from the content")
         except Exception as e:
@@ -371,24 +400,37 @@ async def process_file(
         # Lưu kết quả cuối cùng vào thư mục output
         output_dir = "output"
         os.makedirs(output_dir, exist_ok=True)
+
+        document_dir = "document"
+        os.makedirs(document_dir, exist_ok=True)
+
+        # print(document)
         
         # Lấy tên file gốc
         original_filename = os.path.basename(file_path)
         # Tạo timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # Tạo tên file kết quả
+        document_filename = f"{os.path.splitext(original_filename)[0]}_{timestamp}.json"
+        document_json = os.path.join(document_dir, document_filename)
+        
         results_filename = f"{os.path.splitext(original_filename)[0]}_{timestamp}.json"
         results_json = os.path.join(output_dir, results_filename)
+        # Tính thời gian xử lý
+        end_time = time.time()
+        processing_time = end_time - start_time
+
+        # Thêm thời gian xử lý vào kết quả
+        results.append({"process_time": processing_time})
         
         try:
             with open(results_json, "w", encoding="utf-8") as f:
                 json.dump(results, f, ensure_ascii=False, indent=2)
+            with open(document_json, "w", encoding="utf-8") as f:
+                json.dump(document, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"Error writing results file: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error writing results file: {str(e)}")
-
-        end_time = time.time()
-        processing_time = end_time - start_time
         
         return {
             "results": results,
@@ -446,7 +488,8 @@ async def get_process_result(
             
         return {
             "filename": filename,
-            "results": results_data
+            "results": results_data,
+            "process_time": results_data[-1]["process_time"]
         }
     except HTTPException as he:
         raise he
@@ -464,23 +507,23 @@ async def generate_docx(request: Request):
         if not filename:
             raise HTTPException(status_code=400, detail="Filename is required")
 
-        # Tìm file trong thư mục output
-        output_dir = "output"
-        matching_files = [f for f in os.listdir(output_dir) if f.endswith('.json') and filename in f]
+        # Tìm file trong thư mục document
+        document_dir = "document"
+        matching_files = [f for f in os.listdir(document_dir) if f.endswith('.json') and filename in f]
         
         if not matching_files:
             print(f"No matching files found for: {filename}")
-            raise HTTPException(status_code=404, detail="Result file not found")
+            raise HTTPException(status_code=404, detail="Document file not found")
             
         # Lấy file đầu tiên tìm thấy
-        result_file = matching_files[0]
-        json_path = os.path.join(output_dir, result_file)
+        document_file = matching_files[0]
+        json_path = os.path.join(document_dir, document_file)
         print(f"Found matching file: {json_path}")
 
         # Đọc file JSON
         with open(json_path, 'r', encoding='utf-8') as f:
-            results = json.load(f)
-        print(f"Successfully loaded JSON data with {len(results)} results")
+            document = json.load(f)
+        print(f"Successfully loaded JSON data with {len(document)} items")
 
         # Tạo file DOCX
         doc = Document()
@@ -488,54 +531,110 @@ async def generate_docx(request: Request):
         # Thêm tiêu đề
         doc.add_heading('Kết quả phân tích', 0)
         
-        # Thêm từng câu hỏi và câu trả lời
-        for result in results:
-            # Thêm câu hỏi
-            doc.add_heading(result['question'], level=1)
+        # Thêm từng mục
+        for item in document:
+            # Thêm tiêu đề chính
+            doc.add_heading(item['title'], level=1)
             
             # Thêm câu trả lời
-            doc.add_paragraph(result['answer'])
+            if 'answer' in item:
+                p = doc.add_paragraph()
+                p.add_run('AI trả lời: ').bold = True
+                p.add_run(item['answer'])
             
-            # Thêm tài liệu tham khảo nếu có
-            if result.get('documents'):
+            # Thêm tài liệu tham khảo
+            if 'documents' in item:
                 doc.add_heading('Tài liệu tham khảo:', level=2)
-                for source, docs in result['documents'].items():
-                    doc.add_paragraph(f'Nguồn: {source}', style='Heading 3')
+                for source, docs in item['documents'].items():
+                    doc.add_heading(source, level=3)
                     for doc_item in docs:
-                        doc.add_paragraph(doc_item['text'])
+                        p = doc.add_paragraph()
+                        p.add_run(doc_item['title']).bold = True
+                        p.add_run('\n' + doc_item['text'])
             
-            # Thêm đường kẻ phân cách
-            doc.add_paragraph('_' * 50)
+            # Xử lý sub_items nếu có
+            if 'sub_items' in item:
+                for sub_item in item['sub_items']:
+                    # Thêm tiêu đề phụ
+                    doc.add_heading(sub_item['title'], level=2)
+                    
+                    # Thêm câu trả lời
+                    if 'answer' in sub_item:
+                        p = doc.add_paragraph()
+                        p.add_run('AI trả lời: ').bold = True
+                        p.add_run(sub_item['answer'])
+                    
+                    # Thêm tài liệu tham khảo
+                    if 'documents' in sub_item:
+                        doc.add_heading('Tài liệu tham khảo:', level=3)
+                        for source, docs in sub_item['documents'].items():
+                            doc.add_heading(source, level=4)
+                            for doc_item in docs:
+                                p = doc.add_paragraph()
+                                p.add_run(doc_item['title']).bold = True
+                                p.add_run('\n' + doc_item['text'])
+                    
+                    # Xử lý details nếu có
+                    if 'details' in sub_item:
+                        for detail in sub_item['details']:
+                            # Thêm tiêu đề chi tiết
+                            doc.add_heading(detail['title'], level=3)
+                            
+                            # Thêm câu trả lời
+                            if 'answer' in detail:
+                                p = doc.add_paragraph()
+                                p.add_run('AI trả lời: ').bold = True
+                                p.add_run(detail['answer'])
+                            
+                            # Thêm tài liệu tham khảo
+                            if 'documents' in detail:
+                                doc.add_heading('Tài liệu tham khảo:', level=4)
+                                for source, docs in detail['documents'].items():
+                                    doc.add_heading(source, level=5)
+                                    for doc_item in docs:
+                                        p = doc.add_paragraph()
+                                        p.add_run(doc_item['title']).bold = True
+                                        p.add_run('\n' + doc_item['text'])
+                            
+                            # Xử lý sub_details nếu có
+                            if 'sub_details' in detail:
+                                for sub_detail in detail['sub_details']:
+                                    # Thêm tiêu đề chi tiết phụ
+                                    doc.add_heading(sub_detail['title'], level=4)
+                                    
+                                    # Thêm câu trả lời
+                                    if 'answer' in sub_detail:
+                                        p = doc.add_paragraph()
+                                        p.add_run('AI trả lời: ').bold = True
+                                        p.add_run(sub_detail['answer'])
+                                    
+                                    # Thêm tài liệu tham khảo
+                                    if 'documents' in sub_detail:
+                                        doc.add_heading('Tài liệu tham khảo:', level=5)
+                                        for source, docs in sub_detail['documents'].items():
+                                            doc.add_heading(source, level=6)
+                                            for doc_item in docs:
+                                                p = doc.add_paragraph()
+                                                p.add_run(doc_item['title']).bold = True
+                                                p.add_run('\n' + doc_item['text'])
 
-        # Lưu file DOCX tạm thời
-        TEMP_DIR = "temp_docx"
-        os.makedirs(TEMP_DIR, exist_ok=True)
-        temp_docx_path = os.path.join(TEMP_DIR, f"{os.path.splitext(result_file)[0]}.docx")
-        print(f"Saving DOCX to temporary path: {temp_docx_path}")
-        doc.save(temp_docx_path)
-
-        # Đọc file DOCX và trả về
-        with open(temp_docx_path, 'rb') as f:
-            docx_content = f.read()
-
-        # Xóa file tạm
-        os.remove(temp_docx_path)
+        # Tạo tên file DOCX
+        docx_filename = f"{os.path.splitext(filename)[0]}.docx"
+        docx_path = os.path.join(document_dir, docx_filename)
+        
+        # Lưu file DOCX
+        doc.save(docx_path)
+        print(f"Successfully created DOCX file: {docx_path}")
 
         # Trả về file DOCX
-        return Response(
-            content=docx_content,
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={
-                "Content-Disposition": f"attachment; filename={os.path.splitext(result_file)[0]}.docx"
-            }
+        return FileResponse(
+            path=docx_path,
+            filename=docx_filename,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-
     except Exception as e:
         print(f"Error generating DOCX: {str(e)}")
-        print(f"Error type: {type(e)}")
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error generating DOCX: {str(e)}")
 
 @app.get("/files")
 async def get_files(

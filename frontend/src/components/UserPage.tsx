@@ -31,6 +31,9 @@ import {
   Select,
   MenuItem,
   FormControl,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from "@mui/material";
 import {
   Delete as DeleteIcon,
@@ -39,6 +42,7 @@ import {
   Close as CloseIcon,
   Visibility as VisibilityIcon,
   Download as DownloadIcon,
+  ExpandMore as ExpandMoreIcon,
 } from "@mui/icons-material";
 import { format } from "date-fns";
 import ReactMarkdown from "react-markdown";
@@ -90,10 +94,12 @@ const UserPage: React.FC = () => {
   const [processingResults, setProcessingResults] = useState<ProcessResult[]>(
     []
   );
+  const [processingTime, setProcessingTime] = useState<number>(0);
   const [resultsDialogOpen, setResultsDialogOpen] = useState(false);
   const [currentTab, setCurrentTab] = useState(0);
   const [processingStatus, setProcessingStatus] = useState<{[key: string]: boolean}>({});
   const [selectedProcessType, setSelectedProcessType] = useState<string>("1");
+  const [expandedAccordion, setExpandedAccordion] = useState<string | false>(false);
 
   // Tạo instance axios với config mặc định
   const api = axios.create({
@@ -157,6 +163,8 @@ const UserPage: React.FC = () => {
         Array.isArray(response.data.results)
       ) {
         setProcessingResults(response.data.results);
+        setProcessingTime(response.data.process_time);
+        console.log("Processing time:", response.data);
         setResultsDialogOpen(true);
       } else {
         setError("No results found");
@@ -257,6 +265,7 @@ const UserPage: React.FC = () => {
 
       processPromise.then(response => {
         setProcessingResults(response.data.results);
+        setProcessingTime(response.data.process_time);
         setSuccess("File processed successfully");
         setResultsDialogOpen(true);
       }).catch(err => {
@@ -323,6 +332,10 @@ const UserPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAccordionChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
+    setExpandedAccordion(isExpanded ? panel : false);
   };
 
   return (
@@ -604,73 +617,153 @@ const UserPage: React.FC = () => {
               <CircularProgress />
             </Box>
           ) : processingResults.length > 0 ? (
+            
             <Box>
-              {processingResults.map((result, index) => (
-                <Box key={index} sx={{ mb: 4 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Câu hỏi {index + 1}
-                  </Typography>
-                  <Typography variant="body1" paragraph>
-                    {result.sentence.split('\\n').map((line, index) => (
-                      <React.Fragment key={index}>
-                        {line}
-                        {index < result.sentence.split('\\n').length - 1 && <br />}
-                      </React.Fragment>
-                    ))}
-                  </Typography>
-
-                  <Typography variant="h6" gutterBottom>
-                    Câu trả lời
-                  </Typography>
-                  <Box
-                    sx={{
-                      "& p": { mb: 2 },
-                      "& ul": { pl: 2, mb: 2 },
-                      "& li": { mb: 1 },
-                      "& strong": { fontWeight: "bold" },
-                    }}
+              {processingTime && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Thời gian xử lý: {processingTime.toFixed(2)} giây
+                </Typography>
+              )}
+              {processingResults.slice(0, -1).map((result, index) => (
+                <Accordion 
+                  key={index} 
+                  sx={{ mb: 2 }}
+                  expanded={expandedAccordion === `panel${index}`}
+                  onChange={handleAccordionChange(`panel${index}`)}
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon />}
+                    aria-controls={`panel${index}-content`}
+                    id={`panel${index}-header`}
                   >
-                    <ReactMarkdown>{result.answer}</ReactMarkdown>
-                  </Box>
-
-                  {result.documents &&
-                    Object.keys(result.documents).length > 0 && (
-                      <>
-                        <Typography variant="h6" gutterBottom>
-                          Tài liệu tham khảo
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: '100%' }}>
+                      <Typography variant="h6">
+                        Điều khoản đánh giá {index + 1}
+                      </Typography>
+                      {!expandedAccordion && (
+                        <Typography 
+                          variant="body2" 
+                          color="text.secondary"
+                          sx={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            maxWidth: '100%'
+                          }}
+                        >
+                          {result.sentence ? result.sentence.split('\n').map((line, index) => (
+                            <React.Fragment key={index}>
+                              {line}
+                              {index < result.sentence.split('\n').length - 1 && <br />}
+                            </React.Fragment>
+                          ))  : 'Không có nội dung'}
                         </Typography>
-                        {Object.entries(result.documents).map(
-                          ([source, docs]) => (
-                            <Box key={source} sx={{ mb: 3 }}>
-                              <Typography
-                                variant="subtitle1"
-                                color="primary"
-                                gutterBottom
-                              >
-                                {source}
-                              </Typography>
-                              <List dense>
-                                {docs.map((doc, docIndex) => (
-                                  <ListItem key={docIndex}>
-                                    <ListItemText
-                                      primary={doc.title}
-                                      secondary={
-                                        doc.text || "Không có nội dung"
-                                      }
-                                    />
-                                  </ListItem>
-                                ))}
-                              </List>
-                              <Divider />
-                            </Box>
-                          )
-                        )}
-                      </>
-                    )}
-                  {index < processingResults.length - 1 && (
-                    <Divider sx={{ my: 3 }} />
-                  )}
-                </Box>
+                      )}
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Typography variant="body1" paragraph>
+                      {result.sentence ? result.sentence.split('\n').map((line, index) => (
+                        <React.Fragment key={index}>
+                          {line}
+                          {index < result.sentence.split('\n').length - 1 && <br />}
+                        </React.Fragment>
+                      )) : 'No sentence content available'}
+                    </Typography>
+
+                    <Accordion sx={{ mb: 2 }}>
+                      <AccordionSummary
+                        expandIcon={<ExpandMoreIcon />}
+                        aria-controls="panel-ai-answer"
+                        id="panel-ai-answer-header"
+                      >
+                        <Typography 
+                          variant="h6"
+                          sx={{ 
+                            color: 'primary.main',
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          AI trả lời
+                        </Typography>
+                      </AccordionSummary>
+                      <AccordionDetails>
+                        <Box
+                          sx={{
+                            "& p": { mb: 2 },
+                            "& ul": { pl: 2, mb: 2 },
+                            "& li": { mb: 1 },
+                            "& strong": { fontWeight: "bold" },
+                          }}
+                        >
+                          <ReactMarkdown>{result.answer}</ReactMarkdown>
+                        </Box>
+                      </AccordionDetails>
+                    </Accordion>
+
+                    {result.documents &&
+                      Object.keys(result.documents).length > 0 && (
+                        <>
+                          <Typography 
+                            variant="h6" 
+                            gutterBottom
+                            sx={{ 
+                              color: 'secondary.main',
+                              fontWeight: 'bold',
+                              borderBottom: '2px solid',
+                              borderColor: 'secondary.main',
+                              pb: 1,
+                              mb: 2
+                            }}
+                          >
+                            Tài liệu, điều luật tham khảo
+                          </Typography>
+                          {Object.entries(result.documents).map(
+                            ([source, docs]) => (
+                              <Accordion key={source} sx={{ mb: 1 }}>
+                                <AccordionSummary
+                                  expandIcon={<ExpandMoreIcon />}
+                                  aria-controls={`panel-${source}`}
+                                  id={`panel-${source}-header`}
+                                >
+                                  <Typography
+                                    variant="subtitle1"
+                                    color="primary"
+                                  >
+                                    {source}
+                                  </Typography>
+                                </AccordionSummary>
+                                <AccordionDetails>
+                                  <List dense>
+                                    {docs.map((doc, docIndex) => (
+                                      <ListItem key={docIndex}>
+                                        <ListItemText
+                                          primary={doc.title}
+                                          secondary={
+                                            doc.text ? (() => {
+                                              const lines = doc.text.split('\n');
+                                              return lines.map((line, index) => (
+                                                <React.Fragment key={index}>
+                                                  {line}
+                                                  {index < lines.length - 1 && <br />}
+                                                </React.Fragment>
+                                              ));
+                                            })() : "Không có nội dung"
+                                          }
+                                        />
+                                      </ListItem>
+                                    ))}
+                                  </List>
+                                </AccordionDetails>
+                              </Accordion>
+                            )
+                          )}
+                        </>
+                      )}
+                  </AccordionDetails>
+                </Accordion>
               ))}
             </Box>
           ) : (
