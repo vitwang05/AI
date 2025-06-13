@@ -473,23 +473,51 @@ async def get_process_result(
 ):
     try:
         output_dir = "output"
+        document_dir = "document"
+        
         # Tìm file có chứa tên file gốc trong tên
         matching_files = [f for f in os.listdir(output_dir) if filename in f and f.endswith('.json')]
+        matching_document_files = [f for f in os.listdir(document_dir) if filename in f and f.endswith('.json')]
         
         if not matching_files:
             raise HTTPException(status_code=404, detail="Result not found")
-        
+        if not matching_document_files:
+            raise HTTPException(status_code=404, detail="Document not found")
+            
         # Lấy file đầu tiên khớp với tên file
         results_file = os.path.join(output_dir, matching_files[0])
+        document_file = os.path.join(document_dir, matching_document_files[0])
         
-        with open(results_file, "r", encoding="utf-8") as f:
-            results_data = json.load(f)
-            print("Raw results data:", results_data)  # Debug log
+        try:
+            with open(results_file, "r", encoding="utf-8") as f:
+                results_data = json.load(f)
+                print("Raw results data:", results_data)  # Debug log
+        except Exception as e:
+            print(f"Error reading results file: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error reading results file: {str(e)}")
+            
+        try:
+            with open(document_file, "r", encoding="utf-8") as f:
+                document_data = json.load(f)
+                print("Raw document data:", document_data)  # Debug log
+        except Exception as e:
+            print(f"Error reading document file: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error reading document file: {str(e)}")
+            
+        # Kiểm tra xem results_data có phải là list và có phần tử cuối cùng không
+        if not isinstance(results_data, list) or not results_data:
+            raise HTTPException(status_code=500, detail="Invalid results data format")
+            
+        # Kiểm tra xem phần tử cuối cùng có process_time không
+        last_result = results_data[-1]
+        if not isinstance(last_result, dict) or "process_time" not in last_result:
+            raise HTTPException(status_code=500, detail="Process time not found in results")
             
         return {
             "filename": filename,
             "results": results_data,
-            "process_time": results_data[-1]["process_time"]
+            "document": document_data,
+            "process_time": last_result["process_time"]
         }
     except HTTPException as he:
         raise he

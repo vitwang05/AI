@@ -43,9 +43,11 @@ import {
   Visibility as VisibilityIcon,
   Download as DownloadIcon,
   ExpandMore as ExpandMoreIcon,
+  Description as DescriptionIcon,
 } from "@mui/icons-material";
 import { format } from "date-fns";
 import ReactMarkdown from "react-markdown";
+import DocumentView from './DocumentView';
 
 interface FileInfo {
   name: string;
@@ -100,6 +102,8 @@ const UserPage: React.FC = () => {
   const [processingStatus, setProcessingStatus] = useState<{[key: string]: boolean}>({});
   const [selectedProcessType, setSelectedProcessType] = useState<string>("1");
   const [expandedAccordion, setExpandedAccordion] = useState<string | false>(false);
+  const [documentViewOpen, setDocumentViewOpen] = useState(false);
+  const [documentData, setDocumentData] = useState<any[]>([]);
 
   // Tạo instance axios với config mặc định
   const api = axios.create({
@@ -338,6 +342,24 @@ const UserPage: React.FC = () => {
     setExpandedAccordion(isExpanded ? panel : false);
   };
 
+  const handleViewDocument = async (filename: string) => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/process-results/${filename}`);
+      if (response.data && response.data.document) {
+        setDocumentData(response.data.document);
+        setDocumentViewOpen(true);
+      } else {
+        setError("No document data found");
+      }
+    } catch (err) {
+      console.error("Error fetching document:", err);
+      setError("Failed to fetch document data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       <Typography variant="h4" gutterBottom>
@@ -533,6 +555,14 @@ const UserPage: React.FC = () => {
                               sx={{ mr: 1 }}
                             >
                               <VisibilityIcon />
+                            </IconButton>
+                            <IconButton
+                              edge="end"
+                              aria-label="document"
+                              onClick={() => handleViewDocument(file.filename)}
+                              sx={{ mr: 1 }}
+                            >
+                              <DescriptionIcon />
                             </IconButton>
                             <IconButton
                               edge="end"
@@ -774,6 +804,49 @@ const UserPage: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseResultsDialog}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={documentViewOpen}
+        onClose={() => setDocumentViewOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            maxHeight: "80vh",
+          },
+        }}
+      >
+        <DialogTitle>
+          Xem tài liệu
+          <IconButton
+            aria-label="close"
+            onClick={() => setDocumentViewOpen(false)}
+            sx={{
+              position: "absolute",
+              right: 8,
+              top: 8,
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {loading ? (
+            <Box display="flex" justifyContent="center" p={3}>
+              <CircularProgress />
+            </Box>
+          ) : documentData.length > 0 ? (
+            <DocumentView document={documentData} />
+          ) : (
+            <Typography variant="body1" color="text.secondary">
+              Không có dữ liệu tài liệu
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDocumentViewOpen(false)}>Đóng</Button>
         </DialogActions>
       </Dialog>
     </Container>
