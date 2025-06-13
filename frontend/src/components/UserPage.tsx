@@ -60,7 +60,7 @@ interface Documents {
 }
 
 interface ProcessResult {
-  question: string;
+  sentence: string;
   answer: string;
   documents: Documents;
 }
@@ -611,7 +611,12 @@ const UserPage: React.FC = () => {
                     Câu hỏi {index + 1}
                   </Typography>
                   <Typography variant="body1" paragraph>
-                    {result.question}
+                    {result.sentence.split('\\n').map((line, index) => (
+                      <React.Fragment key={index}>
+                        {line}
+                        {index < result.sentence.split('\\n').length - 1 && <br />}
+                      </React.Fragment>
+                    ))}
                   </Typography>
 
                   <Typography variant="h6" gutterBottom>

@@ -141,7 +141,9 @@ def process_json(data, qa):
         return dict(result)
     
     def process_item(item, parent_title=""):
+        sentence = ("")
         title = item.get("title", "")
+        sentence = f"{parent_title}\n{title}" if parent_title else title
         full_title = f"{parent_title} > {title}" if parent_title else title
         sub_items = item.get("sub_items", [])
         
@@ -150,6 +152,7 @@ def process_json(data, qa):
             answer, documents = answer_question(full_title, qa)
             grouped_documents = group_by_program(documents)
             results.append({
+                "sentence": sentence,
                 "question": full_title,
                 "answer": answer,
                 "documents": grouped_documents
@@ -158,6 +161,7 @@ def process_json(data, qa):
             # Xử lý các sub_items
             for sub in sub_items:
                 sub_title = sub.get("title", "")
+                sub_sentence = f"{sentence}\n{sub_title}"
                 full_sub_title = f"{full_title} > {sub_title}"
                 details = sub.get("details", [])
                 
@@ -166,6 +170,7 @@ def process_json(data, qa):
                     answer, documents = answer_question(full_sub_title, qa)
                     grouped_documents = group_by_program(documents)
                     results.append({
+                        "sentence": sub_sentence,
                         "question": full_sub_title,
                         "answer": answer,
                         "documents": grouped_documents
@@ -174,6 +179,7 @@ def process_json(data, qa):
                     # Xử lý các details
                     for detail in details:
                         detail_title = detail.get("title", "")
+                        detail_sentence = f"{sub_sentence}\n{detail_title}"
                         full_detail_title = f"{full_sub_title} > {detail_title}"
                         sub_details = detail.get("sub_details", [])
                         
@@ -182,6 +188,7 @@ def process_json(data, qa):
                             answer, documents = answer_question(full_detail_title, qa)
                             grouped_documents = group_by_program(documents)
                             results.append({
+                                "sentence": detail_sentence,
                                 "question": full_detail_title,
                                 "answer": answer,
                                 "documents": grouped_documents
@@ -189,10 +196,12 @@ def process_json(data, qa):
                         else:
                             # Xử lý các sub_details
                             for sub_detail in sub_details:
+                                sub_detail_sentence = f"{detail_sentence}\n{sub_detail}"
                                 full_sub_detail_title = f"{full_detail_title} > {sub_detail}"
                                 answer, documents = answer_question(full_sub_detail_title, qa)
                                 grouped_documents = group_by_program(documents)
                                 results.append({
+                                    "sentence":sub_detail_sentence,
                                     "question": full_sub_detail_title,
                                     "answer": answer,
                                     "documents": grouped_documents
@@ -433,6 +442,7 @@ async def get_process_result(
         
         with open(results_file, "r", encoding="utf-8") as f:
             results_data = json.load(f)
+            print("Raw results data:", results_data)  # Debug log
             
         return {
             "filename": filename,
@@ -441,6 +451,7 @@ async def get_process_result(
     except HTTPException as he:
         raise he
     except Exception as e:
+        print(f"Error reading results: {str(e)}")  # Debug log
         raise HTTPException(status_code=500, detail=f"Error reading results: {str(e)}")
 
 @app.post("/generate-docx")
